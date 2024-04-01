@@ -13,8 +13,11 @@ const teamId = 6 // BOSTON'S TEAM ID
 let wins = 0
 let losses = 0
 let scoredOnFirst = 0
+interface Game {
+  id: string
+}
 const gameData = await Promise.all(
-  gamesData.games.map(async (game) => {
+  gamesData.games.map(async (game: Game) => {
     const dataResponse = await fetch(`https://api-web.nhle.com/v1/gamecenter/${game.id}/play-by-play`)
     const data = await dataResponse.json()
     return {
@@ -24,7 +27,7 @@ const gameData = await Promise.all(
   })
 )
 
-const playedGamed = gameData.map((game) => {
+gameData.map((game) => {
   const isTeamAway = game.data.awayTeam.id === teamId
   const isTeamHome = game.data.homeTeam.id === teamId
   

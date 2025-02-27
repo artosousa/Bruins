@@ -60,11 +60,13 @@ async function fetchData() {
             const playerResponse = await fetch(`https://api-web.nhle.com/v1/player/${play.details.scoringPlayerId}/landing`);
             const playerData = await playerResponse.json();
             const playerName = `${playerData.firstName.default} ${playerData.lastName.default}`;
-            const gameDate = new Date(game.startTimeUTC).toLocaleDateString();
+            const gameDate = new Date(game.startTimeUTC);
+            const localDate = new Date(gameDate.getTime() - gameDate.getTimezoneOffset() * 60000);
+            const formattedDate = localDate.toLocaleDateString();
 
             if (playerData.currentTeamId !== teamId) {
               gamesWithGoals.push({
-                gameDate,
+                gameDate: formattedDate,
                 opponent: game.opponentTeam.name,
                 player: playerName,
                 period: play.periodDescriptor.number,

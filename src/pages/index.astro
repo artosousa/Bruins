@@ -1,58 +1,87 @@
 ---
-const team = await fetch ('https://api-web.nhle.com/v1/player/8473419/landing')
-const teamData  = await team.json()
+const teamId = 6; // Bruins' team ID
 
-const {teamLogo} = teamData
-const {heroImage} = teamData
-
-const gamesResponse = await fetch('https://api-web.nhle.com/v1/club-schedule-season/BOS/20232024')
-const gamesData = await gamesResponse.json()
-
-const teamId = 6 // BOSTON'S TEAM ID
-
-let wins = 0
-let losses = 0
-let scoredOnFirst = 0
 interface Game {
-  id: string
+  id: string;
+  startTimeUTC: string; // Game date
+  opponentTeam: { id: number; name: string };
+  data?: {
+    gameState: string;
+    homeTeam: { id: number; name: string; score: number };
+    awayTeam: { id: number; name: string; score: number };
+    plays: Play[];
+  };
 }
-const gameData = await Promise.all(
-  gamesData.games.map(async (game: Game) => {
-    const dataResponse = await fetch(`https://api-web.nhle.com/v1/gamecenter/${game.id}/play-by-play`)
-    const data = await dataResponse.json()
-    return {
-      ...game,
-      data,
-    }
-  })
-)
 
-gameData.map((game) => {
-  const isTeamAway = game.data.awayTeam.id === teamId
-  const isTeamHome = game.data.homeTeam.id === teamId
-  
-  if (game.data.gameState === 'OFF'){
-    for (const play of game.data.plays) {
-      if (play.typeDescKey === 'goal') {
-        
-        if (isTeamAway && play.details.homeScore === 1 || isTeamHome && play.details.awayScore === 1 ){
-          scoredOnFirst++
-          if(isTeamAway && game.data.awayTeam.score > game.data.homeTeam.score || isTeamHome && game.data.homeTeam.score > game.data.awayTeam.score){
-            wins++
-          } else {
-            losses++
+interface Play {
+  typeDescKey: string;
+  timeRemaining: string;
+  periodDescriptor: {
+    number: number;
+    periodType: string;
+    maxRegulationPeriods: number;
+  };
+  details: { scoringPlayerId: string };
+}
+
+async function fetchData() {
+  const teamResponse = await fetch('https://api-web.nhle.com/v1/player/8473419/landing');
+  const teamData = await teamResponse.json();
+  const { teamLogo, heroImage } = teamData;
+
+  const gamesResponse = await fetch('https://api-web.nhle.com/v1/club-schedule-season/BOS/20242025');
+  const gamesData = await gamesResponse.json();
+
+  const gameData: Game[] = await Promise.all(
+    gamesData.games.map(async (game: Game) => {
+      const dataResponse = await fetch(`https://api-web.nhle.com/v1/gamecenter/${game.id}/play-by-play`);
+      const data = await dataResponse.json();
+
+      // Determine the opponent team
+      const isHome = data.homeTeam.id === teamId;
+      const opponentTeam = isHome ? data.awayTeam : data.homeTeam;
+
+      return { ...game, data, opponentTeam };
+    })
+  );
+
+  const gamesWithGoals = [];
+
+  for (const game of gameData) {
+    if (!game.data) continue;
+    
+    if (game.data.gameState === 'OFF') {
+      for (const play of game.data.plays) {
+        if (play.typeDescKey === 'goal') {
+          const [minutes, seconds] = play.timeRemaining.split(':').map(Number);
+          const totalSeconds = minutes * 60 + seconds;
+
+          if (totalSeconds <= 120 && play.periodDescriptor.periodType === 'REG') {
+            const playerResponse = await fetch(`https://api-web.nhle.com/v1/player/${play.details.scoringPlayerId}/landing`);
+            const playerData = await playerResponse.json();
+            const playerName = `${playerData.firstName.default} ${playerData.lastName.default}`;
+            const gameDate = new Date(game.startTimeUTC).toLocaleDateString();
+
+            if (playerData.currentTeamId !== teamId) {
+              gamesWithGoals.push({
+                gameDate,
+                opponent: game.opponentTeam.name,
+                player: playerName,
+                period: play.periodDescriptor.number,
+                timeRemaining: play.timeRemaining,
+              });
+            }
           }
-        } 
-        
-        break
+        }
       }
     }
-  } 
-  
-})
+  }
 
+  return { teamLogo, heroImage, gamesWithGoals };
+}
+
+const { teamLogo, heroImage, gamesWithGoals } = await fetchData();
 ---
-
 
 <!doctype html>
 <html lang="en">
@@ -61,27 +90,31 @@ gameData.map((game) => {
 		<meta name="description" content="Astro description" />
 		<meta name="viewport" content="width=device-width" />
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<meta name="generator" content={Astro.generator} />
 		<title>Bruins Stats</title>
 	</head>
 	<body class="bg-[#442b19] sm:p-1">
-		<div class=" fixed -z-10 top-0 left-0 w-full h-screen mix-blend-luminosity opacity-10 flex items-center justify-center">
-			<img title="Boston Bruins" alt="Hero img" src={heroImage} class="object-cover h-[100%] w-[100%]" />
+		<div class="fixed -z-10 top-0 left-0 w-full h-screen mix-blend-luminosity opacity-10 flex items-center justify-center">
+			<img title="Boston Bruins" alt="Hero img" src={heroImage} class="object-cover h-full w-full" />
 		</div>
 
-    <div class="flex flex-col min-h-[95vh] items-center justify-center">
+		<div class="flex flex-col min-h-[95vh] items-center justify-center">
 			<div class="mb-8 relative">
-				<div class="rounded-full overflow-hidden ">
-					<img class="w-96 h-96" title=`Bruins` alt="headshot" src={teamLogo} />
+				<div class="rounded-full overflow-hidden">
+					<img class="w-96 h-96" title="Bruins" alt="team logo" src={teamLogo} />
 				</div>
 			</div>
-			<h2 class="text-3xl lg:text-5xl text-center text-[#fdb718] font-bold mb-8">Bruins have been scored on first {scoredOnFirst} times this season! <br/>They have a record of {wins} wins and {losses} losses when scored on first </h2>
-      <h2 class="text-3xl lg:text-5xl text-center text-[#fdb718] font-bold mb-8">They have a {Math.round((wins/scoredOnFirst) * 100)}% chance of winning when scored on first.</h2>
+
+			<h2 class="text-3xl lg:text-5xl text-center text-[#fdb718] font-bold mb-8">
+				Games where the Bruins Let a goal within the last 2:00 of a regulation period
+			</h2>
+
+			<ul class="text-[#fdb718] text-xl">
+				{gamesWithGoals.map((game) => (
+					<li class="mb-4">
+						{game.gameDate}: {game.opponent} - {game.player} scored with {game.timeRemaining} left in period {game.period}
+					</li>
+				))}
+			</ul>
 		</div>
-    
-    </main>
-    <main>
-      
 	</body>
 </html>
-
